@@ -155,3 +155,4 @@ wandb/
 # Checkpoint
 runs/
 adapter-tmp/
+finetuned_models/

@@ -14,6 +14,7 @@ from prismatic.models.backbones.llm.prompting import PurePromptBuilder, VicunaV1
 from prismatic.util.data_utils import PaddedCollatorForActionPrediction
 from prismatic.vla.action_tokenizer import ActionTokenizer
 from prismatic.vla.datasets import RLDSBatchTransform, RLDSDataset
+from prismatic.vla.datasets.rlds.utils.data_utils import save_dataset_statistics
 
 
 @dataclass
@@ -23,7 +24,7 @@ class FinetuneConfig:
 
     # Directory Paths
     data_root_dir: Path = Path("/data/OpenX-Embodiment")        # Path to Open-X dataset directory
-    dataset_name: str = "ucsd_kitchen_dataset_converted_externally_to_rlds" # Name of fine-tuning dataset (e.g., `droid_wipe`)
+    dataset_name: str = "austin_buds_dataset_converted_externally_to_rlds" # Name of fine-tuning dataset (e.g., `droid_wipe`)
     run_root_dir: Path = Path("runs")                               # Path to directory to store logs & checkpoints
     adapter_tmp_dir: Path = Path("adapter-tmp")                     # Temporary directory for LoRA weights before fusing
 
@@ -57,28 +58,28 @@ cfg = FinetuneConfig()
 device_id = torch.cuda.set_device("cuda:2")
 torch.cuda.empty_cache()
 
-quantization_config = None
-if cfg.use_quantization:
-    assert cfg.use_lora, "Quantized training only supported for LoRA fine-tuning!"
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16, bnb_4bit_quant_type="nf4"
-    )
+# quantization_config = None
+# if cfg.use_quantization:
+#     assert cfg.use_lora, "Quantized training only supported for LoRA fine-tuning!"
+#     quantization_config = BitsAndBytesConfig(
+#         load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16, bnb_4bit_quant_type="nf4"
+#     )
 
 processor = AutoProcessor.from_pretrained(cfg.vla_path, trust_remote_code=True)
-vla = AutoModelForVision2Seq.from_pretrained(
-    cfg.vla_path,
-    torch_dtype=torch.float16,
-    quantization_config=quantization_config,
-    low_cpu_mem_usage=True,
-    trust_remote_code=True,
-)
+# vla = AutoModelForVision2Seq.from_pretrained(
+#     cfg.vla_path,
+#     torch_dtype=torch.float16,
+#     quantization_config=quantization_config,
+#     low_cpu_mem_usage=True,
+#     trust_remote_code=True,
+# )
 
 
-# Device Placement =>> note that BitsAndBytes automatically handles for quantized training
-if cfg.use_quantization:
-    vla = prepare_model_for_kbit_training(vla)
-else:
-    vla = vla.to(device_id)
+# # Device Placement =>> note that BitsAndBytes automatically handles for quantized training
+# if cfg.use_quantization:
+#     vla = prepare_model_for_kbit_training(vla)
+# else:
+#     vla = vla.to(device_id)
 
 # [LoRA] Wrap Model w/ PEFT `LoraConfig` =>> by default we set `target_modules=all-linear`
 # if cfg.use_lora:
@@ -109,10 +110,20 @@ vla_dataset = RLDSDataset(
     cfg.data_root_dir,
     cfg.dataset_name,
     batch_transform,
-    resize_resolution=tuple(vla.config.image_sizes),
+    resize_resolution=(224,224), #tuple(vla.config.image_sizes),
     shuffle_buffer_size=cfg.shuffle_buffer_size,
     image_aug=cfg.image_aug,
 )
+
+dataset = vla_dataset.dataset
+print(len(vla_dataset))
+
+sample = next(iter(vla_dataset))
+# print(sample.keys(), dir(sample))
+for key in sample.keys():
+    print(key, type(sample[key]), sample[key].shape if "shape" in dir(sample[key]) else None)
+print("-"*20)
+# save_dataset_statistics(vla_dataset.dataset_statistics, Path("./data_stats/"))
 
 # Create Collator and DataLoader
 # collator = PaddedCollatorForActionPrediction(
